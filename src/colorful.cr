@@ -94,6 +94,37 @@ module Colorful
     {x, y, z}
   end
 
+  # Helper functions for xyY conversions
+  def self.xyz_to_xyy_white_ref(x : Float64, y : Float64, z : Float64, wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
+    yout = y
+    n = x + y + z
+    if n.abs < 1e-14
+      # When we have black, use reference white's chromacity for x and y
+      xout = wref[0] / (wref[0] + wref[1] + wref[2])
+      yout_xy = wref[1] / (wref[0] + wref[1] + wref[2])
+    else
+      xout = x / n
+      yout_xy = y / n
+    end
+    {xout, yout_xy, yout}
+  end
+
+  def self.xyz_to_xyy(x : Float64, y : Float64, z : Float64) : Tuple(Float64, Float64, Float64)
+    xyz_to_xyy_white_ref(x, y, z, D65)
+  end
+
+  def self.xyy_to_xyz(x_xy : Float64, y_xy : Float64, yy : Float64) : Tuple(Float64, Float64, Float64)
+    y_out = yy
+    if -1e-14 < y_xy && y_xy < 1e-14
+      x = 0.0
+      z = 0.0
+    else
+      x = yy / y_xy * x_xy
+      z = yy / y_xy * (1.0 - x_xy - y_xy)
+    end
+    {x, y_out, z}
+  end
+
   # Helper functions for Lab conversions
   private def self.lab_f(t : Float64) : Float64
     if t > (6.0/29.0) ** 3
@@ -130,7 +161,7 @@ module Colorful
   # Helper functions for HCL conversions (polar Lab)
   def self.lab_to_hcl(l : Float64, a : Float64, b : Float64) : Tuple(Float64, Float64, Float64)
     h = 0.0
-    if Math.abs(b - a) > 1e-4 && Math.abs(a) > 1e-4
+    if (b - a).abs > 1e-4 && a.abs > 1e-4
       h = Math.atan2(b, a) * 180.0 / Math::PI
       h += 360.0 if h < 0.0
     end
@@ -156,11 +187,21 @@ module Colorful
     def self.hex(input : String) : Color
       s = input.strip
       s = s[1..] if s.starts_with?('#')
-      raise ArgumentError.new("invalid hex color") unless s.size == 6
-      r = s[0, 2].to_i(16)
-      g = s[2, 2].to_i(16)
-      b = s[4, 2].to_i(16)
-      Color.new(r / 255.0, g / 255.0, b / 255.0)
+      case s.size
+      when 3
+        r = s[0, 1].to_i(16)
+        g = s[1, 1].to_i(16)
+        b = s[2, 1].to_i(16)
+        # Expand short hex: #rgb -> #rrggbb
+        Color.new((r * 17) / 255.0, (g * 17) / 255.0, (b * 17) / 255.0)
+      when 6
+        r = s[0, 2].to_i(16)
+        g = s[2, 2].to_i(16)
+        b = s[4, 2].to_i(16)
+        Color.new(r / 255.0, g / 255.0, b / 255.0)
+      else
+        raise ArgumentError.new("invalid hex color")
+      end
     end
 
     def hex : String
@@ -180,18 +221,18 @@ module Colorful
 
     # Returns the color as 8-bit RGB values
     def rgb255 : Tuple(UInt8, UInt8, UInt8)
-      r = (@r * 255.0 + 0.5).to_u8
-      g = (@g * 255.0 + 0.5).to_u8
-      b = (@b * 255.0 + 0.5).to_u8
-      {r, g, b}
+      r = (Math.max(0.0, Math.min(1.0, @r)) * 255.0 + 0.5).to_i
+      g = (Math.max(0.0, Math.min(1.0, @g)) * 255.0 + 0.5).to_i
+      b = (Math.max(0.0, Math.min(1.0, @b)) * 255.0 + 0.5).to_i
+      {r.to_u8, g.to_u8, b.to_u8}
     end
 
     # Implement RGBA color interface (alpha always fully opaque)
     def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
-      r = (@r * 65535.0 + 0.5).to_u32
-      g = (@g * 65535.0 + 0.5).to_u32
-      b = (@b * 65535.0 + 0.5).to_u32
-      {r, g, b, 0xFFFF_u32}
+      r = (Math.max(0.0, Math.min(1.0, @r)) * 65535.0 + 0.5).to_i
+      g = (Math.max(0.0, Math.min(1.0, @g)) * 65535.0 + 0.5).to_i
+      b = (Math.max(0.0, Math.min(1.0, @b)) * 65535.0 + 0.5).to_i
+      {r.to_u32, g.to_u32, b.to_u32, 0xFFFF_u32}
     end
 
     private def clamp01(v : Float64) : Float64
@@ -288,6 +329,18 @@ module Colorful
     # L* is in [0..1] and both u* and v* are in about [-1..1]
     def self.luv(l : Float64, u : Float64, v : Float64) : Color
       x, y, z = Colorful.luv_to_xyz_white_ref(l, u, v, D65)
+      from_xyz(x, y, z)
+    end
+
+    # Returns the color in CIE L*u*v* space, taking into account a given reference white.
+    def luv_white_ref(wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
+      x, y, z = to_xyz
+      Colorful.xyz_to_luv_white_ref(x, y, z, wref)
+    end
+
+    # Generates a color by using data given in CIE L*u*v* space, taking into account a given reference white.
+    def self.luv_white_ref(l : Float64, u : Float64, v : Float64, wref : Array(Float64)) : Color
+      x, y, z = Colorful.luv_to_xyz_white_ref(l, u, v, wref)
       from_xyz(x, y, z)
     end
 
@@ -480,6 +533,24 @@ module Colorful
     # Creates a new Color given CIE XYZ coordinates (D65)
     def self.xyz(x : Float64, y : Float64, z : Float64) : Color
       from_xyz(x, y, z)
+    end
+
+    # Returns the color in CIE xyY space (D65)
+    def xyy : Tuple(Float64, Float64, Float64)
+      x, y, z = to_xyz
+      Colorful.xyz_to_xyy(x, y, z)
+    end
+
+    # Returns the color in CIE xyY space with given white reference
+    def xyy_white_ref(wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
+      x, y, z = to_xyz
+      Colorful.xyz_to_xyy_white_ref(x, y, z, wref)
+    end
+
+    # Creates a new Color given CIE xyY coordinates (D65)
+    def self.xyy(x : Float64, y : Float64, yy : Float64) : Color
+      x_xyz, y_xyz, z_xyz = Colorful.xyy_to_xyz(x, y, yy)
+      from_xyz(x_xyz, y_xyz, z_xyz)
     end
 
     # Returns the color in linear RGB space
