@@ -6,22 +6,23 @@ A Crystal library for working with colors in various color spaces. This is a por
 
 ## Features
 
-- **RGB**: Red, Green and Blue in [0..1]
-- **Hex RGB**: The web color format (e.g., `#FF00FF`)
-- **CIE-L\*u\*v\***: A perceptually uniform color space where distances are meaningful
-- **Blending in Luv space**: Smooth color interpolation using perceptual color space
-- **SRGB to Linear RGB conversion**: For gamma-correct rendering
+* **RGB**: Red, Green and Blue in [0..1]
+* **Hex RGB**: The web color format (e.g., `#FF00FF`)
+* **CIE-L\*u\*v\***: A perceptually uniform color space where distances are meaningful
+* **Blending in Luv space**: Smooth color interpolation using perceptual color space
+* **SRGB to Linear RGB conversion**: For gamma-correct rendering
 
 Planned features (from the original go-colorful):
-- **HSL**, **HSV**: Legacy color spaces
-- **CIE-XYZ**, **CIE-xyY**: Standard color spaces
-- **CIE-L\*a\*b\***: Another perceptually uniform color space
-- **CIE-L\*C\*h° (HCL)**: Polar representation of Lab (better HSV)
-- **HSLuv**, **HPLuv**: Human-friendly alternatives to HSL
-- **Oklab**, **Oklch**: Modern perceptual color spaces
-- Color distance calculations (CIE76, CIE94, CIEDE2000)
-- Random color generation with constraints
-- Color palette generation
+
+* **HSL**, **HSV**: Legacy color spaces
+* **CIE-XYZ**, **CIE-xyY**: Standard color spaces
+* **CIE-L\*a\*b\***: Another perceptually uniform color space
+* **CIE-L\*C\*h° (HCL)**: Polar representation of Lab (better HSV)
+* **HSLuv**, **HPLuv**: Human-friendly alternatives to HSL
+* **Oklab**, **Oklch**: Modern perceptual color spaces
+*   Color distance calculations (CIE76, CIE94, CIEDE2000)
+*   Random color generation with constraints
+*   Color palette generation
 
 ## Why use colorful?
 
@@ -29,7 +30,7 @@ When you need to work with colors in a way that matches human perception rather 
 
 ## Installation
 
-1. Add the dependency to your `shard.yml`:
+1.  Add the dependency to your `shard.yml`:
 
    ```yaml
    dependencies:
@@ -37,7 +38,7 @@ When you need to work with colors in a way that matches human perception rather 
        github: dsisnero/colorful
    ```
 
-2. Run `shards install`
+2.  Run `shards install`
 
 ## Usage
 
@@ -74,32 +75,34 @@ See [AGENTS.md](AGENTS.md) for detailed development guidelines and workflow.
 ### Porting Status
 
 Currently implemented:
-- Basic Color struct with RGB values
-- Hex color parsing and formatting
-- CIE-L\*u\*v\* color space conversion
-- Luv space blending
-- SRGB/Linear RGB conversion
+
+*   Basic Color struct with RGB values
+*   Hex color parsing and formatting
+* CIE-L\*u\*v\* color space conversion
+*   Luv space blending
+*   SRGB/Linear RGB conversion
 
 Coming soon: Other color spaces, distance calculations, palette generation, etc.
 
 ## Contributing
 
-1. Fork it (<https://github.com/dsisnero/colorful/fork>)
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
+1.  Fork it (<https://github.com/dsisnero/colorful/fork>)
+2.  Create your feature branch (`git checkout -b my-new-feature`)
+3.  Commit your changes (`git commit -am 'Add some feature'`)
+4.  Push to the branch (`git push origin my-new-feature`)
+5.  Create a new Pull Request
 
 When contributing, please:
-- Follow Crystal coding conventions (snake_case, CamelCase)
-- Add specs for new functionality
-- Port tests from the original Go library when possible
-- See [AGENTS.md](AGENTS.md) for detailed contribution guidelines
+
+*   Follow Crystal coding conventions (snake_case, CamelCase)
+*   Add specs for new functionality
+*   Port tests from the original Go library when possible
+*   See [AGENTS.md](AGENTS.md) for detailed contribution guidelines
 
 ## Credits
 
-- Original Go library: [go-colorful](https://github.com/lucasb-eyer/go-colorful) by Lucas Beyer
-- Port maintainer: [dsisnero](https://github.com/dsisnero)
+*   Original Go library: [go-colorful](https://github.com/lucasb-eyer/go-colorful) by Lucas Beyer
+*   Port maintainer: [dsisnero](https://github.com/dsisnero)
 
 ## License
 
