@@ -64,6 +64,50 @@ private SHORT_HEX_VALS = [
 # White reference for D50 (used in lab50, luv50, hcl50 tests)
 private D50 = [0.96422, 1.00000, 0.82521]
 
+# Ground-truth from http://www.brucelindbloom.com/index.html?ColorDifferenceCalcHelp.html
+private DISTS = [
+  # {c1, c2, d76, d94, d00}
+  {Colorful::Color.new(1.0, 1.0, 1.0), Colorful::Color.new(1.0, 1.0, 1.0), 0.0, 0.0, 0.0},
+  {Colorful::Color.new(0.0, 0.0, 0.0), Colorful::Color.new(0.0, 0.0, 0.0), 0.0, 0.0, 0.0},
+  # Just pairs of values of the table way above.
+  {Colorful::Color.lab(1.000000, 0.000000, 0.000000), Colorful::Color.lab(0.931390, -0.353319, -0.108946), 0.37604638, 0.37604638, 0.23528129},
+  {Colorful::Color.lab(0.720892, 0.651673, -0.422133), Colorful::Color.lab(0.977637, -0.165795, 0.602017), 1.33531088, 0.65466377, 0.75175896},
+  {Colorful::Color.lab(0.590453, 0.332846, -0.637099), Colorful::Color.lab(0.681085, 0.483884, 0.228328), 0.88317072, 0.42541075, 0.37688153},
+  {Colorful::Color.lab(0.906026, -0.600870, 0.498993), Colorful::Color.lab(0.533890, 0.000000, 0.000000), 0.86517280, 0.41038323, 0.39960503},
+  {Colorful::Color.lab(0.911132, -0.480875, -0.141312), Colorful::Color.lab(0.603242, 0.982343, -0.608249), 1.56647162, 0.87431457, 0.57983482},
+  {Colorful::Color.lab(0.971393, -0.215537, 0.944780), Colorful::Color.lab(0.322970, 0.791875, -1.078602), 2.35146891, 1.11858192, 1.03426977},
+  {Colorful::Color.lab(0.877347, -0.861827, 0.831793), Colorful::Color.lab(0.532408, 0.800925, 0.672032), 1.70565338, 0.68800270, 0.86608245},
+]
+
+# Angle interpolation test values
+private ANGLE_VALS = [
+  # {a0, a1, t, at}
+  {0.0, 1.0, 0.0, 0.0},
+  {0.0, 1.0, 0.25, 0.25},
+  {0.0, 1.0, 0.5, 0.5},
+  {0.0, 1.0, 1.0, 1.0},
+  {0.0, 90.0, 0.0, 0.0},
+  {0.0, 90.0, 0.25, 22.5},
+  {0.0, 90.0, 0.5, 45.0},
+  {0.0, 90.0, 1.0, 90.0},
+  {0.0, 178.0, 0.0, 0.0}, # Exact 0-180 is ambiguous.
+  {0.0, 178.0, 0.25, 44.5},
+  {0.0, 178.0, 0.5, 89.0},
+  {0.0, 178.0, 1.0, 178.0},
+  {0.0, 182.0, 0.0, 0.0}, # Exact 0-180 is ambiguous.
+  {0.0, 182.0, 0.25, 315.5},
+  {0.0, 182.0, 0.5, 271.0},
+  {0.0, 182.0, 1.0, 182.0},
+  {0.0, 270.0, 0.0, 0.0},
+  {0.0, 270.0, 0.25, 337.5},
+  {0.0, 270.0, 0.5, 315.0},
+  {0.0, 270.0, 1.0, 270.0},
+  {0.0, 359.0, 0.0, 0.0},
+  {0.0, 359.0, 0.25, 359.75},
+  {0.0, 359.0, 0.5, 359.5},
+  {0.0, 359.0, 1.0, 359.0},
+]
+
 describe Colorful::Color do
   # Keep existing simple tests for compatibility
   it "parses and formats hex colors" do
@@ -393,6 +437,165 @@ describe Colorful::Color do
       almosteq(c_clamped.r, c_want.r).should be_true
       almosteq(c_clamped.g, c_want.g).should be_true
       almosteq(c_clamped.b, c_want.b).should be_true
+    end
+  end
+
+  # Lab distance (CIE76) tests
+  describe "Lab distance (CIE76)" do
+    DISTS.each_with_index do |(c1, c2, d76_expected, _, _), i|
+      it "calculates CIE76 distance for case #{i}" do
+        d = c1.distance_lab(c2)
+        almosteq(d, d76_expected).should be_true
+      end
+    end
+  end
+
+  # CIE94 distance tests
+  describe "CIE94 distance" do
+    DISTS.each_with_index do |(c1, c2, _, d94_expected, _), i|
+      it "calculates CIE94 distance for case #{i}" do
+        d = c1.distance_cie94(c2)
+        almosteq(d, d94_expected).should be_true
+      end
+    end
+  end
+
+  # CIEDE2000 distance tests
+  describe "CIEDE2000 distance" do
+    DISTS.each_with_index do |(c1, c2, _, _, d00_expected), i|
+      it "calculates CIEDE2000 distance for case #{i}" do
+        d = c1.distance_ciede2000(c2)
+        almosteq(d, d00_expected).should be_true
+      end
+    end
+  end
+
+  # Fast linear RGB approximation tests
+  describe "Fast linear RGB approximation" do
+    eps = 6.0 / 255.0 # We want that "within 6 RGB values total" is "good enough"
+
+    it "approximates linear RGB conversion within tolerance" do
+      (0...256).step(4) do |r_int|
+        (0...256).step(4) do |g_int|
+          (0...256).step(4) do |b_int|
+            r = r_int.to_f / 255.0
+            g = g_int.to_f / 255.0
+            b = b_int.to_f / 255.0
+            c = Colorful::Color.new(r, g, b)
+
+            # Test instance method
+            r_want, g_want, b_want = c.linear_rgb
+            r_appr, g_appr, b_appr = c.fast_linear_rgb
+            dr = (r_want - r_appr).abs
+            dg = (g_want - g_appr).abs
+            db = (b_want - b_appr).abs
+
+            if dr + dg + db > eps
+              fail "FastLinearRgb not precise enough for #{c}: differences are (#{dr}, #{dg}, #{db}), allowed total difference is #{eps}"
+            end
+
+            # Test static constructor
+            c_want = Colorful::Color.linear_rgb(r, g, b)
+            c_appr = Colorful::Color.fast_linear_rgb(r, g, b)
+            dr = (c_want.r - c_appr.r).abs
+            dg = (c_want.g - c_appr.g).abs
+            db = (c_want.b - c_appr.b).abs
+
+            if dr + dg + db > eps
+              fail "FastLinearRgb not precise enough for (#{r}, #{g}, #{b}): differences are (#{dr}, #{dg}, #{db}), allowed total difference is #{eps}"
+            end
+          end
+        end
+      end
+    end
+  end
+
+  # Issue 11: blending endpoints test
+  # https://github.com/lucasb-eyer/go-colorful/issues/11
+  describe "Issue 11 blending endpoints" do
+    c1hex = "#1a1a46"
+    c2hex = "#666666"
+
+    c1 = Colorful::Color.hex(c1hex)
+    c2 = Colorful::Color.hex(c2hex)
+
+    it "blends Hsv with t=0 returns first color" do
+      blend = c1.blend_hsv(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends Hsv with t=1 returns second color" do
+      blend = c1.blend_hsv(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+
+    it "blends Luv with t=0 returns first color" do
+      blend = c1.blend_luv(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends Luv with t=1 returns second color" do
+      blend = c1.blend_luv(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+
+    it "blends Rgb with t=0 returns first color" do
+      blend = c1.blend_rgb(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends Rgb with t=1 returns second color" do
+      blend = c1.blend_rgb(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+
+    it "blends LinearRgb with t=0 returns first color" do
+      blend = c1.blend_linear_rgb(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends LinearRgb with t=1 returns second color" do
+      blend = c1.blend_linear_rgb(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+
+    it "blends Lab with t=0 returns first color" do
+      blend = c1.blend_lab(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends Lab with t=1 returns second color" do
+      blend = c1.blend_lab(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+
+    it "blends Hcl with t=0 returns first color" do
+      blend = c1.blend_hcl(c2, 0).hex
+      blend.should eq(c1hex)
+    end
+
+    it "blends Hcl with t=1 returns second color" do
+      blend = c1.blend_hcl(c2, 1).hex
+      blend.should eq(c2hex)
+    end
+  end
+
+  # Angle interpolation tests
+  describe "Angle interpolation" do
+    # Forward
+    ANGLE_VALS.each_with_index do |(a0, a1, t, at_expected), i|
+      it "interpolates forward case #{i}" do
+        res = Colorful.interp_angle(a0, a1, t)
+        almosteq_eps(res, at_expected, 1e-15).should be_true
+      end
+    end
+
+    # Backward
+    ANGLE_VALS.each_with_index do |(a0, a1, t, at_expected), i|
+      it "interpolates backward case #{i}" do
+        res = Colorful.interp_angle(a1, a0, 1.0 - t)
+        almosteq_eps(res, at_expected, 1e-15).should be_true
+      end
     end
   end
 end

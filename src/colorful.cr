@@ -7,16 +7,16 @@ module Colorful
   private KAPPA   =    903.3
 
   # Helper math functions
-  private def self.sq(v : Float64) : Float64
+  def self.sq(v : Float64) : Float64
     v * v
   end
 
-  private def self.cub(v : Float64) : Float64
+  def self.cub(v : Float64) : Float64
     v * v * v
   end
 
   # Utility used by Hxx color-spaces for interpolating between two angles in [0,360].
-  private def self.interp_angle(a0 : Float64, a1 : Float64, t : Float64) : Float64
+  def self.interp_angle(a0 : Float64, a1 : Float64, t : Float64) : Float64
     # Based on the answer here: http://stackoverflow.com/a/14498790/2366315
     # With potential proof that it works here: http://math.stackexchange.com/a/2144499
     delta = ((a1 - a0) % 360.0 + 540.0) % 360.0 - 180.0
