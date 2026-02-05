@@ -1,11 +1,11 @@
 module Colorful
   private EPSILON = 0.008856
-  private KAPPA = 903.3
-  private REF_X = 0.95047
-  private REF_Y = 1.0
-  private REF_Z = 1.08883
-  private REF_U = (4.0 * REF_X) / (REF_X + 15.0 * REF_Y + 3.0 * REF_Z)
-  private REF_V = (9.0 * REF_Y) / (REF_X + 15.0 * REF_Y + 3.0 * REF_Z)
+  private KAPPA   =    903.3
+  private REF_X   =  0.95047
+  private REF_Y   =      1.0
+  private REF_Z   =  1.08883
+  private REF_U   = (4.0 * REF_X) / (REF_X + 15.0 * REF_Y + 3.0 * REF_Z)
+  private REF_V   = (9.0 * REF_Y) / (REF_X + 15.0 * REF_Y + 3.0 * REF_Z)
 
   struct Color
     getter r : Float64

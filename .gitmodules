@@ -1,0 +1,3 @@
+[submodule "vendor/go-colorful"]
+	path = vendor/go-colorful
+	url = https://github.com/lucasb-eyer/go-colorful
