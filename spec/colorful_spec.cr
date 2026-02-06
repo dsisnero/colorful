@@ -23,42 +23,39 @@ private def almosteq(v1 : Float64, v2 : Float64) : Bool
 end
 
 # Soft palette generation tests (ported from go-colorful/soft_palettegen_test.go)
-# Pending until SoftPalette implementation is complete (issue colorful-9qq)
+# Implementation completed in issue colorful-9qq
 describe "SoftPalette" do
-  pending "color count" do
-    # TestColorCount
+  it "color count" do
     puts "Testing up to 100 palettes may take a while..."
-    (0...100).each do |_i|
-      # pal, err = SoftPalette(i)
-      # err.should be_nil
-      # pal.size.should eq(i)
-      # pal.each do |col|
-      #   col.should be_valid
-      # end
+    (0...100).each do |i|
+      pal = Colorful.soft_palette(i)
+      pal.size.should eq(i)
+      pal.each do |col|
+        col.valid?.should be_true
+      end
     end
     puts "Done with that, but more tests to run."
   end
 
-  pending "impossible constraint" do
-    # TestImpossibleConstraint
-    # never = ->(_l : Float64, _a : Float64, _b : Float64) { false }
-    # pal, err = SoftPaletteEx(10, SoftPaletteSettings{never, 50, true})
-    # err.should_not be_nil
-    # pal.should be_nil
+  it "impossible constraint" do
+    never = ->(_l : Float64, _a : Float64, _b : Float64) { false }
+    settings = Colorful::SoftPaletteSettings.new(check_color: never, iterations: 50, many_samples: true)
+    expect_raises(ArgumentError) do
+      Colorful.soft_palette_ex(10, settings)
+    end
   end
 
-  pending "constraint" do
-    # TestConstraint
-    # octant = ->(_l : Float64, _a : Float64, _b : Float64) { _l <= 0.5 && _a <= 0.0 && _b <= 0.0 }
-    # pal, err = SoftPaletteEx(100, SoftPaletteSettings{octant, 50, true})
-    # err.should be_nil
-    # pal.each do |col|
-    #   col.should be_valid
-    #   l, a, b = col.lab
-    #   l.should be <= 0.5
-    #   a.should be <= 0.0
-    #   b.should be <= 0.0
-    # end
+  it "constraint" do
+    octant = ->(l : Float64, a : Float64, b : Float64) { l <= 0.5 && a <= 0.0 && b <= 0.0 }
+    settings = Colorful::SoftPaletteSettings.new(check_color: octant, iterations: 50, many_samples: true)
+    pal = Colorful.soft_palette_ex(100, settings)
+    pal.each do |col|
+      col.valid?.should be_true
+      l, a, b = col.lab
+      l.should be <= 0.5
+      a.should be <= 0.0
+      b.should be <= 0.0
+    end
   end
 end
 

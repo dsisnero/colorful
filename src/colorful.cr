@@ -1482,4 +1482,206 @@ module Colorful
       0.5 + rand.rand * 0.3
     )
   end
+
+  # Soft palette generation functions (ported from go-colorful/soft_palettegen.go)
+
+  # The algorithm works in L*a*b* color space and converts to RGB in the end.
+  # L* in [0..1], a* and b* in [-1..1]
+  private struct LabT
+    property l : Float64
+    property a : Float64
+    property b : Float64
+
+    def initialize(@l : Float64, @a : Float64, @b : Float64)
+    end
+  end
+
+  struct SoftPaletteSettings
+    # A function which can be used to restrict the allowed color-space.
+    property check_color : (Float64, Float64, Float64 -> Bool)?
+
+    # The higher, the better quality but the slower. Usually two figures.
+    property iterations : Int32
+
+    # Use up to 160000 or 8000 samples of the L*a*b* space (and thus calls to CheckColor).
+    # Set this to true only if your CheckColor shapes the Lab space weirdly.
+    property many_samples : Bool
+
+    def initialize(@check_color = nil, @iterations = 50, @many_samples = false)
+    end
+  end
+
+  # Yeah, windows-stype Foo, FooEx, screw you golang...
+  # Uses K-means to cluster the color-space and return the means of the clusters
+  # as a new palette of distinctive colors. Falls back to K-medoid if the mean
+  # happens to fall outside of the color-space, which can only happen if you
+  # specify a CheckColor function.
+  def self.soft_palette_ex_with_rand(colors_count : Int32, settings : SoftPaletteSettings, rand : Random) : Array(Color)
+    # Checks whether it's a valid RGB and also fulfills the potentially provided constraint.
+    check = ->(col : LabT) : Bool {
+      c = Color.lab(col.l, col.a, col.b)
+      return false unless c.valid?
+      if check_color = settings.check_color
+        return check_color.call(col.l, col.a, col.b)
+      end
+      true
+    }
+
+    # Sample the color space. These will be the points k-means is run on.
+    dl = settings.many_samples ? 0.01 : 0.05
+    dab = settings.many_samples ? 0.05 : 0.1
+
+    samples = [] of LabT
+    l = 0.0
+    while l <= 1.0
+      a = -1.0
+      while a <= 1.0
+        b = -1.0
+        while b <= 1.0
+          if check.call(LabT.new(l, a, b))
+            samples << LabT.new(l, a, b)
+          end
+          b += dab
+        end
+        a += dab
+      end
+      l += dl
+    end
+
+    # That would cause some infinite loops down there...
+    if samples.size < colors_count
+      raise ArgumentError.new("palettegen: more colors requested (#{colors_count}) than samples available (#{samples.size}). Your requested color count may be wrong, you might want to use many samples or your constraint function makes the valid color space too small")
+    elsif samples.size == colors_count
+      return labs_to_colors(samples) # Oops?
+    end
+
+    # We take the initial means out of the samples, so they are in fact medoids.
+    # This helps us avoid infinite loops or arbitrary cutoffs with too restrictive constraints.
+    means = Array(LabT).new(colors_count)
+    colors_count.times do |i|
+      mean = samples[rand.rand(samples.size)]
+      while in_array(means, i, mean)
+        mean = samples[rand.rand(samples.size)]
+      end
+      means << mean
+    end
+
+    clusters = Array(Int32).new(samples.size, 0)
+    samples_used = Array(Bool).new(samples.size, false)
+
+    # The actual k-means/medoid iterations
+    settings.iterations.times do
+      # Reassigning the samples to clusters, i.e. to their closest mean.
+      # By the way, also check if any sample is used as a medoid and if so, mark that.
+      samples.each_with_index do |sample, isample|
+        samples_used[isample] = false
+        mindist = Float64::INFINITY
+        means.each_with_index do |mean, imean|
+          dist = lab_dist(sample, mean)
+          if dist < mindist
+            mindist = dist
+            clusters[isample] = imean
+          end
+
+          # Mark samples which are used as a medoid.
+          if lab_eq(sample, mean)
+            samples_used[isample] = true
+          end
+        end
+      end
+
+      # Compute new means according to the samples.
+      means.each_with_index do |_, imean|
+        # The new mean is the average of all samples belonging to it.
+        nsamples = 0
+        newmean = LabT.new(0.0, 0.0, 0.0)
+        samples.each_with_index do |sample, isample|
+          if clusters[isample] == imean
+            nsamples += 1
+            newmean.l += sample.l
+            newmean.a += sample.a
+            newmean.b += sample.b
+          end
+        end
+
+        if nsamples > 0
+          newmean.l /= nsamples.to_f
+          newmean.a /= nsamples.to_f
+          newmean.b /= nsamples.to_f
+        else
+          # That mean doesn't have any samples? Get a new mean from the sample list!
+          inewmean = rand.rand(samples_used.size)
+          while samples_used[inewmean]
+            inewmean = rand.rand(samples_used.size)
+          end
+          newmean = samples[inewmean]
+          samples_used[inewmean] = true
+        end
+
+        # But now we still need to check whether the new mean is an allowed color.
+        if nsamples > 0 && check.call(newmean)
+          # It does, life's good (TM)
+          means[imean] = newmean
+        else
+          # New mean isn't an allowed color or doesn't have any samples!
+          # Switch to medoid mode and pick the closest (unused) sample.
+          # This should always find something thanks to len(samples) >= colorsCount
+          mindist = Float64::INFINITY
+          samples.each_with_index do |sample, isample|
+            if !samples_used[isample]
+              dist = lab_dist(sample, newmean)
+              if dist < mindist
+                mindist = dist
+                newmean = sample
+              end
+            end
+          end
+          means[imean] = newmean
+        end
+      end
+    end
+
+    labs_to_colors(means)
+  end
+
+  def self.soft_palette_ex(colors_count : Int32, settings : SoftPaletteSettings) : Array(Color)
+    soft_palette_ex_with_rand(colors_count, settings, Random.new)
+  end
+
+  # A wrapper which uses common parameters.
+  def self.soft_palette_with_rand(colors_count : Int32, rand : Random) : Array(Color)
+    settings = SoftPaletteSettings.new(nil, 50, false)
+    soft_palette_ex_with_rand(colors_count, settings, rand)
+  end
+
+  def self.soft_palette(colors_count : Int32) : Array(Color)
+    soft_palette_with_rand(colors_count, Random.new)
+  end
+
+  # Helper functions
+  private def self.in_array(haystack : Array(LabT), upto : Int32, needle : LabT) : Bool
+    limit = Math.min(upto, haystack.size)
+    limit.times do |i|
+      return true if haystack[i] == needle
+    end
+    false
+  end
+
+  private LAB_DELTA = 1e-6
+
+  private def self.lab_eq(lab1 : LabT, lab2 : LabT) : Bool
+    (lab1.l - lab2.l).abs < LAB_DELTA &&
+      (lab1.a - lab2.a).abs < LAB_DELTA &&
+      (lab1.b - lab2.b).abs < LAB_DELTA
+  end
+
+  # That's faster than using colorful's DistanceLab since we would have to
+  # convert back and forth for that. Here is no conversion.
+  private def self.lab_dist(lab1 : LabT, lab2 : LabT) : Float64
+    Math.sqrt(sq(lab1.l - lab2.l) + sq(lab1.a - lab2.a) + sq(lab1.b - lab2.b))
+  end
+
+  private def self.labs_to_colors(labs : Array(LabT)) : Array(Color)
+    labs.map { |v| Color.lab(v.l, v.a, v.b) }
+  end
 end
