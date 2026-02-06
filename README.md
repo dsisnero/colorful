@@ -7,22 +7,30 @@ A Crystal library for working with colors in various color spaces. This is a por
 ## Features
 
 * **RGB**: Red, Green and Blue in [0..1]
-* **Hex RGB**: The web color format (e.g., `#FF00FF`)
-* **CIE-L\*u\*v\***: A perceptually uniform color space where distances are meaningful
-* **Blending in Luv space**: Smooth color interpolation using perceptual color space
-* **SRGB to Linear RGB conversion**: For gamma-correct rendering
-
-Planned features (from the original go-colorful):
-
+* **Hex RGB**: The web color format (e.g., `#FF00FF`, `#abc`)
 * **HSL**, **HSV**: Legacy color spaces
 * **CIE-XYZ**, **CIE-xyY**: Standard color spaces
 * **CIE-L\*a\*b\***: Another perceptually uniform color space
+* **CIE-L\*u\*v\***: A perceptually uniform color space where distances are meaningful
 * **CIE-L\*C\*h° (HCL)**: Polar representation of Lab (better HSV)
+* **CIE-L\*u\*v\*LCh (LuvLCh)**: Polar representation of Luv
 * **HSLuv**, **HPLuv**: Human-friendly alternatives to HSL
 * **Oklab**, **Oklch**: Modern perceptual color spaces
-*   Color distance calculations (CIE76, CIE94, CIEDE2000)
-*   Random color generation with constraints
-*   Color palette generation
+* **Color distance calculations**: CIE76, CIE94, CIEDE2000, RGB, Linear RGB, Riemersma, Luv, Lab, HSLuv, HPLuv
+* **Blending**: Smooth interpolation in RGB, Linear RGB, HSV, Lab, Luv, HCL, LuvLCh, OkLab, OkLch spaces
+* **SRGB to Linear RGB conversion**: For gamma-correct rendering (with fast approximation)
+* **Random color generation**: Warm/happy colors with perceptual uniformity constraints
+* **Color palette generation**: Soft palette generation using k-means clustering in Lab space
+* **Color sorting**: Perceptually meaningful ordering
+* **HexColor struct**: JSON/YAML serialization, database/sql compatibility
+* **MakeColor**: Conversion from Go standard color types (RGBA, NRGBA, Gray, etc.)
+
+**Porting Status**: This Crystal port is nearly complete, implementing all major features from the original go-colorful library.
+
+**Missing features** (planned for future releases):
+
+* **Happy/Warm palette generators**: `HappyPalette`, `WarmPalette` and their fast variants
+* **Additional convenience aliases**: Some Go-specific aliases (e.g., `DistanceCIE76`)
 
 ## Why use colorful?
 
@@ -55,6 +63,34 @@ puts midpoint.hex  # => "#8a9e5a" (perceptually midway between red and green)
 
 # Create colors directly
 color = Colorful::Color.new(0.5, 0.3, 0.8)
+
+# Convert between color spaces
+hsl = color.hsl                    # => {hue, saturation, lightness}
+lab = color.lab                    # => {L*, a*, b*} (perceptually uniform)
+hcl = color.hcl                    # => {hue, chroma, lightness} (polar Lab)
+oklab = color.oklab                # => {L, a, b} (modern perceptual space)
+
+# Create colors from other spaces
+from_hsl = Colorful::Color.hsl(120.0, 1.0, 0.5)   # Bright green
+from_lab = Colorful::Color.lab(0.8, -0.2, 0.1)
+from_hcl = Colorful::Color.hcl(90.0, 0.5, 0.7)
+
+# Calculate perceptual distance
+distance = color1.distance_lab(color2)   # CIE76 distance
+distance_cie94 = color1.distance_cie94(color2)
+distance_ciede2000 = color1.distance_ciede2000(color2)
+
+# Generate random colors
+warm = Colorful.warm_color                # Random warm color
+happy = Colorful.happy_color              # Random bright, happy color
+
+# Generate a soft palette of 5 distinct colors
+palette = Colorful.soft_palette(5)
+
+# Serialize colors as JSON
+require "json"
+hex_color = Colorful::HexColor.new(1.0, 0.0, 0.0)
+json = hex_color.to_json                  # => "#ff0000"
 ```
 
 ## Development
@@ -76,13 +112,23 @@ See [AGENTS.md](AGENTS.md) for detailed development guidelines and workflow.
 
 Currently implemented:
 
-*   Basic Color struct with RGB values
-*   Hex color parsing and formatting
-* CIE-L\*u\*v\* color space conversion
-*   Luv space blending
-*   SRGB/Linear RGB conversion
+*   **Core**: Color struct with RGB values, validity checking, clamping
+*   **Hex**: Parsing and formatting (short and long forms)
+*   **HSL/HSV**: Conversion and creation
+*   **CIE-XYZ/xyY**: Conversion and creation (D65 and custom white references)
+*   **CIE-Lab/Luv**: Perceptually uniform color spaces (D65 and custom white references)
+*   **HCL/LuvLCh**: Polar representations of Lab and Luv
+*   **HSLuv/HPLuv**: Human-friendly perceptual color spaces
+*   **OkLab/OkLch**: Modern perceptual color spaces
+*   **Blending**: RGB, Linear RGB, HSV, Lab, Luv, HCL, LuvLCh, OkLab, OkLch
+*   **Distance calculations**: CIE76, CIE94, CIEDE2000, RGB, Linear RGB, Riemersma, Luv, Lab, HSLuv, HPLuv
+*   **Random color generation**: Warm/happy colors with perceptual constraints
+*   **Color palette generation**: Soft palette generation using k-means clustering
+*   **Color sorting**: Perceptually meaningful ordering
+*   **Serialization**: HexColor struct with JSON/YAML support, database/sql compatibility
+*   **Interoperability**: MakeColor conversion from Go standard color types
 
-Coming soon: Other color spaces, distance calculations, palette generation, etc.
+The port is nearly complete, with most features from the original go-colorful library implemented.
 
 ## Contributing
 
