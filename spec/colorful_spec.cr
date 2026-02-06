@@ -60,35 +60,35 @@ describe "SoftPalette" do
 end
 
 # Color sorting tests (ported from go-colorful/sort_test.go)
-# Pending until Sorted implementation is complete (issue colorful-4se)
+# Implementation completed in issue colorful-4se
 describe "Color sorting" do
-  pending "simple sort" do
+  it "simple sort" do
     # TestSortSimple
     # Sort a list of reds and blues.
-    # in_colors = [] of Colorful::Color
-    # 3.times do |i|
-    #   # Reds
-    #   in_colors << Colorful::Color.new(1.0 - (i + 1) * 0.25, 0.0, 0.0)
-    #   # Blues
-    #   in_colors << Colorful::Color.new(0.0, 0.0, 1.0 - (i + 1) * 0.25)
-    # end
-    #
-    # out = Colorful::Color.sorted(in_colors)
-    #
-    # expected = [
-    #   Colorful::Color.new(0.25, 0.0, 0.0),
-    #   Colorful::Color.new(0.50, 0.0, 0.0),
-    #   Colorful::Color.new(0.75, 0.0, 0.0),
-    #   Colorful::Color.new(0.0, 0.0, 0.25),
-    #   Colorful::Color.new(0.0, 0.0, 0.50),
-    #   Colorful::Color.new(0.0, 0.0, 0.75),
-    # ]
-    #
-    # expected.each_with_index do |exp, i|
-    #   almosteq(out[i].r, exp.r).should be_true
-    #   almosteq(out[i].g, exp.g).should be_true
-    #   almosteq(out[i].b, exp.b).should be_true
-    # end
+    in_colors = [] of Colorful::Color
+    3.times do |i|
+      # Reds
+      in_colors << Colorful::Color.new(1.0 - (i + 1) * 0.25, 0.0, 0.0)
+      # Blues
+      in_colors << Colorful::Color.new(0.0, 0.0, 1.0 - (i + 1) * 0.25)
+    end
+
+    result = Colorful.sorted(in_colors)
+
+    expected = [
+      Colorful::Color.new(0.25, 0.0, 0.0),
+      Colorful::Color.new(0.50, 0.0, 0.0),
+      Colorful::Color.new(0.75, 0.0, 0.0),
+      Colorful::Color.new(0.0, 0.0, 0.25),
+      Colorful::Color.new(0.0, 0.0, 0.50),
+      Colorful::Color.new(0.0, 0.0, 0.75),
+    ]
+
+    expected.each_with_index do |exp, i|
+      almosteq(result[i].r, exp.r).should be_true
+      almosteq(result[i].g, exp.g).should be_true
+      almosteq(result[i].b, exp.b).should be_true
+    end
   end
 end
 

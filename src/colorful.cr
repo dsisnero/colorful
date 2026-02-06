@@ -1505,7 +1505,7 @@ module Colorful
 
     # Use up to 160000 or 8000 samples of the L*a*b* space (and thus calls to CheckColor).
     # Set this to true only if your CheckColor shapes the Lab space weirdly.
-    property many_samples : Bool
+    property? many_samples : Bool
 
     def initialize(@check_color = nil, @iterations = 50, @many_samples = false)
     end
@@ -1528,8 +1528,8 @@ module Colorful
     }
 
     # Sample the color space. These will be the points k-means is run on.
-    dl = settings.many_samples ? 0.01 : 0.05
-    dab = settings.many_samples ? 0.05 : 0.1
+    dl = settings.many_samples? ? 0.01 : 0.05
+    dab = settings.many_samples? ? 0.05 : 0.1
 
     samples = [] of LabT
     l = 0.0
@@ -1683,5 +1683,193 @@ module Colorful
 
   private def self.labs_to_colors(labs : Array(LabT)) : Array(Color)
     labs.map { |v| Color.lab(v.l, v.a, v.b) }
+  end
+
+  # Color sorting functions (ported from go-colorful/sort.go)
+
+  # An element represents a single element of a set. It is used to
+  # implement a disjoint-set forest.
+  private class Element
+    property parent : Element # Parent element
+    property rank : Int32     # Rank (approximate depth) of the subtree with this element as root
+
+    def initialize
+      @parent = uninitialized Element
+      @rank = 0
+      @parent = self
+    end
+
+    # find returns an arbitrary element of a set when invoked on any element of
+    # the set. The important feature is that it returns the same value when
+    # invoked on any element of the set. Consequently, it can be used to test if
+    # two elements belong to the same set.
+    def find : Element
+      e = self
+      while e.parent != e
+        e.parent = e.parent.parent
+        e = e.parent
+      end
+      e
+    end
+  end
+
+  # union establishes the union of two sets when given an element from each set.
+  # Afterwards, the original sets no longer exist as separate entities.
+  private def self.union(e1 : Element, e2 : Element) : Nil
+    # Ensure the two elements aren't already part of the same union.
+    e1_root = e1.find
+    e2_root = e2.find
+    return if e1_root == e2_root
+
+    # Create a union by making the shorter tree point to the root of the
+    # larger tree.
+    if e1_root.rank < e2_root.rank
+      e1_root.parent = e2_root
+    elsif e1_root.rank > e2_root.rank
+      e2_root.parent = e1_root
+    else
+      e2_root.parent = e1_root
+      e1_root.rank += 1
+    end
+  end
+
+  # An edge_idxs describes an edge in a graph or tree. The vertices in the edge
+  # are indexes into a list of Color values.
+  private struct EdgeIdxs
+    property u : Int32
+    property v : Int32
+
+    def initialize(@u : Int32, @v : Int32)
+    end
+
+    def ==(other : self) : Bool
+      @u == other.u && @v == other.v
+    end
+
+    def_hash @u, @v
+  end
+
+  # An edge_distance is a map from an edge (pair of indices) to a distance
+  # between the two vertices.
+  private alias EdgeDistance = Hash(EdgeIdxs, Float64)
+
+  # all_to_all_distances_ciede2000 computes the CIEDE2000 distance between each pair of
+  # colors. It returns a map from a pair of indices (u, v) with u < v to a
+  # distance.
+  private def self.all_to_all_distances_ciede2000(cs : Array(Color)) : EdgeDistance
+    nc = cs.size
+    m = EdgeDistance.new
+    (0...nc - 1).each do |u_idx|
+      ((u_idx + 1)...nc).each do |v_idx|
+        m[EdgeIdxs.new(u_idx, v_idx)] = cs[u_idx].distance_ciede2000(cs[v_idx])
+      end
+    end
+    m
+  end
+
+  # sort_edges sorts all edges in a distance map by increasing vertex distance.
+  private def self.sort_edges(m : EdgeDistance) : Array(EdgeIdxs)
+    es = m.keys.sort_by! { |edge| m[edge] }
+    es
+  end
+
+  # min_span_tree computes a minimum spanning tree from a vertex count and a
+  # distance-sorted edge list. It returns the subset of edges that belong to
+  # the tree, including both (u, v) and (v, u) for each edge.
+  private def self.min_span_tree(nc : Int32, es : Array(EdgeIdxs)) : Set(EdgeIdxs)
+    # Start with each vertex in its own set.
+    elts = Array(Element).new(nc) { Element.new }
+
+    # Run Kruskal's algorithm to construct a minimal spanning tree.
+    mst = Set(EdgeIdxs).new
+    es.each do |edge|
+      from_vertex, to_vertex = edge.u, edge.v
+      if elts[from_vertex].find == elts[to_vertex].find
+        next # Same set: edge would introduce a cycle.
+      end
+      mst.add(edge)
+      mst.add(EdgeIdxs.new(to_vertex, from_vertex))
+      union(elts[from_vertex], elts[to_vertex])
+    end
+    mst
+  end
+
+  # traverse_mst walks a minimum spanning tree in prefix order.
+  private def self.traverse_mst(mst : Set(EdgeIdxs), root : Int32) : Array(Int32)
+    # Compute a list of neighbors for each vertex.
+    neighs = Hash(Int32, Array(Int32)).new { |hash, key| hash[key] = [] of Int32 }
+    mst.each do |edge|
+      from_vertex, to_vertex = edge.u, edge.v
+      neighs[from_vertex] << to_vertex
+    end
+
+    neighs.each do |vertex, neighbors|
+      neighs[vertex] = neighbors.sort
+    end
+
+    # Walk the tree from a given vertex.
+    order = [] of Int32
+    visited = Set(Int32).new
+
+    # Define recursive walk function using closure
+    walk_from = uninitialized Proc(Int32, Nil)
+    walk_from = ->(r : Int32) do
+      # Visit the starting vertex.
+      order << r
+      visited.add(r)
+
+      # Recursively visit each child in turn.
+      neighs[r].each do |child|
+        unless visited.includes?(child)
+          walk_from.call(child)
+        end
+      end
+    end
+
+    walk_from.call(root)
+    order
+  end
+
+  # Sorted sorts a list of Color values. Sorting is not a well-defined operation
+  # for colors so the intention here primarily is to order colors so that the
+  # transition from one to the next is fairly smooth.
+  def self.sorted(cs : Array(Color)) : Array(Color)
+    # Do nothing in trivial cases.
+    new_cs = Array(Color).new(cs.size)
+    if cs.size < 2
+      cs.each { |color| new_cs << color }
+      return new_cs
+    end
+
+    # Compute the distance from each color to every other color.
+    dists = all_to_all_distances_ciede2000(cs)
+
+    # Produce a list of edges in increasing order of the distance between
+    # their vertices.
+    edges = sort_edges(dists)
+
+    # Construct a minimum spanning tree from the list of edges.
+    mst = min_span_tree(cs.size, edges)
+
+    # Find the darkest color in the list.
+    black = Color.new(0.0, 0.0, 0.0)
+    d_idx = 0            # Index of darkest color
+    light = Float64::MAX # Lightness of darkest color (distance from black)
+    cs.each_with_index do |color, i|
+      d = black.distance_ciede2000(color)
+      if d < light
+        d_idx = i
+        light = d
+      end
+    end
+
+    # Traverse the tree starting from the darkest color.
+    idxs = traverse_mst(mst, d_idx)
+
+    # Convert the index list to a list of colors, overwriting the input.
+    idxs.each do |idx|
+      new_cs << cs[idx]
+    end
+    new_cs
   end
 end
