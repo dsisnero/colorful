@@ -1167,4 +1167,47 @@ describe "HexColor" do
     obj.color.g.should be_close(0.0, Colorful::DELTA)
     obj.color.b.should be_close(1.0, Colorful::DELTA)
   end
+
+  # Test Scan and Value methods (Go database/sql compatibility)
+  it "scans and values hex colors" do
+    test_cases = [
+      {Colorful::HexColor.new(0.0, 0.0, 0.0), "#000000"},
+      {Colorful::HexColor.new(1.0, 0.0, 0.0), "#ff0000"},
+      {Colorful::HexColor.new(0.0, 1.0, 0.0), "#00ff00"},
+      {Colorful::HexColor.new(0.0, 0.0, 1.0), "#0000ff"},
+      {Colorful::HexColor.new(1.0, 1.0, 1.0), "#ffffff"},
+    ]
+
+    test_cases.each do |expected_hc, hex_str|
+      # Test Scan
+      got_hc = Colorful::HexColor.new(0.0, 0.0, 0.0) # Start with empty
+      got_hc.scan(hex_str)
+      got_hc.r.should be_close(expected_hc.r, Colorful::DELTA)
+      got_hc.g.should be_close(expected_hc.g, Colorful::DELTA)
+      got_hc.b.should be_close(expected_hc.b, Colorful::DELTA)
+
+      # Test Value
+      got_value = expected_hc.value
+      got_value.should eq(hex_str)
+    end
+  end
+
+  # Test Decode method (Go envconfig compatibility)
+  it "decodes hex colors" do
+    test_cases = [
+      {Colorful::HexColor.new(0.0, 0.0, 0.0), "#000000"},
+      {Colorful::HexColor.new(1.0, 0.0, 0.0), "#ff0000"},
+      {Colorful::HexColor.new(0.0, 1.0, 0.0), "#00ff00"},
+      {Colorful::HexColor.new(0.0, 0.0, 1.0), "#0000ff"},
+      {Colorful::HexColor.new(1.0, 1.0, 1.0), "#ffffff"},
+    ]
+
+    test_cases.each do |expected_hc, hex_str|
+      got_hc = Colorful::HexColor.new(0.0, 0.0, 0.0) # Start with empty
+      got_hc.decode(hex_str)
+      got_hc.r.should be_close(expected_hc.r, Colorful::DELTA)
+      got_hc.g.should be_close(expected_hc.g, Colorful::DELTA)
+      got_hc.b.should be_close(expected_hc.b, Colorful::DELTA)
+    end
+  end
 end

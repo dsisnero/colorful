@@ -1356,6 +1356,24 @@ module Colorful
       @color
     end
 
+    # Scan implements database/sql.Scanner interface (Go compatibility).
+    # Parses a hex string and sets the color.
+    def scan(value : String) : Nil
+      @color = Color.hex(value)
+    end
+
+    # Value implements database/sql/driver.Value interface (Go compatibility).
+    # Returns the hex string representation.
+    def value : String
+      to_s
+    end
+
+    # Decode implements envconfig decoder interface (Go compatibility).
+    # Parses a hex string and sets the color.
+    def decode(hex_code : String) : Nil
+      @color = Color.hex(hex_code)
+    end
+
     # For compatibility with Go's HexColor type which has R, G, B fields
     def r : Float64
       @color.r
