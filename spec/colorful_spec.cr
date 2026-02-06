@@ -98,34 +98,34 @@ end
 # Color generator tests (ported from go-colorful/colorgens_test.go)
 # Pending until color generator implementation is complete (issue colorful-j89)
 describe "Color generators" do
-  pending "color validity" do
+  it "color validity" do
     # TestColorValidity
     # with default seed
-    # 100.times do
-    #   col = WarmColor()
-    #   col.should be_valid
-    #   col = FastWarmColor()
-    #   col.should be_valid
-    #   col = HappyColor()
-    #   col.should be_valid
-    #   col = FastHappyColor()
-    #   col.should be_valid
-    # end
-    #
-    # # with custom seed
-    # seed = Time.utc.to_unix_ns
-    # rand = Random.new(seed)
-    #
-    # 100.times do
-    #   col = WarmColorWithRand(rand)
-    #   col.should be_valid
-    #   col = FastWarmColorWithRand(rand)
-    #   col.should be_valid
-    #   col = HappyColorWithRand(rand)
-    #   col.should be_valid
-    #   col = FastHappyColorWithRand(rand)
-    #   col.should be_valid
-    # end
+    100.times do
+      col = Colorful.warm_color
+      col.valid?.should be_true
+      col = Colorful.fast_warm_color
+      col.valid?.should be_true
+      col = Colorful.happy_color
+      col.valid?.should be_true
+      col = Colorful.fast_happy_color
+      col.valid?.should be_true
+    end
+
+    # with custom seed
+    seed = Time.utc.to_unix_ns
+    rand = Random.new(seed)
+
+    100.times do
+      col = Colorful.warm_color_with_rand(rand)
+      col.valid?.should be_true
+      col = Colorful.fast_warm_color_with_rand(rand)
+      col.valid?.should be_true
+      col = Colorful.happy_color_with_rand(rand)
+      col.valid?.should be_true
+      col = Colorful.fast_happy_color_with_rand(rand)
+      col.valid?.should be_true
+    end
   end
 end
 

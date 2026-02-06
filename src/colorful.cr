@@ -1408,4 +1408,78 @@ module Colorful
       new(hex)
     end
   end
+
+  # Color generation functions (ported from go-colorful/colorgens.go)
+
+  # Creates a random dark, "warm" color through a restricted HSV space.
+  def self.fast_warm_color_with_rand(rand : Random) : Color
+    Color.hsv(
+      rand.rand * 360.0,
+      0.5 + rand.rand * 0.3,
+      0.3 + rand.rand * 0.3
+    )
+  end
+
+  def self.fast_warm_color : Color
+    fast_warm_color_with_rand(Random.new)
+  end
+
+  # Creates a random dark, "warm" color through restricted HCL space.
+  # This is slower than FastWarmColor but will likely give you colors which have
+  # the same "warmness" if you run it many times.
+  def self.warm_color_with_rand(rand : Random) : Color
+    c = random_warm_with_rand(rand)
+    until c.valid?
+      c = random_warm_with_rand(rand)
+    end
+    c
+  end
+
+  def self.warm_color : Color
+    warm_color_with_rand(Random.new)
+  end
+
+  private def self.random_warm_with_rand(rand : Random) : Color
+    Color.hcl(
+      rand.rand * 360.0,
+      0.1 + rand.rand * 0.3,
+      0.2 + rand.rand * 0.3
+    )
+  end
+
+  # Creates a random bright, "pimpy" color through a restricted HSV space.
+  def self.fast_happy_color_with_rand(rand : Random) : Color
+    Color.hsv(
+      rand.rand * 360.0,
+      0.7 + rand.rand * 0.3,
+      0.6 + rand.rand * 0.3
+    )
+  end
+
+  def self.fast_happy_color : Color
+    fast_happy_color_with_rand(Random.new)
+  end
+
+  # Creates a random bright, "pimpy" color through restricted HCL space.
+  # This is slower than FastHappyColor but will likely give you colors which
+  # have the same "brightness" if you run it many times.
+  def self.happy_color_with_rand(rand : Random) : Color
+    c = random_pimp_with_rand(rand)
+    until c.valid?
+      c = random_pimp_with_rand(rand)
+    end
+    c
+  end
+
+  def self.happy_color : Color
+    happy_color_with_rand(Random.new)
+  end
+
+  private def self.random_pimp_with_rand(rand : Random) : Color
+    Color.hcl(
+      rand.rand * 360.0,
+      0.5 + rand.rand * 0.3,
+      0.5 + rand.rand * 0.3
+    )
+  end
 end
