@@ -1,10 +1,22 @@
+# JSON and YAML support for HexColor serialization
+require "json"
+require "yaml"
+
 module Colorful
   # Constants for color comparisons
   DELTA = 1.0 / 255.0
 
   # Constants for Lab/Luv conversions
-  private EPSILON = 0.008856
-  private KAPPA   =    903.3
+  private EPSILON = 0.0088564516790356308
+  private KAPPA   =     903.2962962962963
+  # Constants for HSLuv conversions
+  private HSLUV_KAPPA   =     903.2962962962963
+  private HSLUV_EPSILON = 0.0088564516790356308
+  private HSLUV_M       = [
+    [3.2409699419045214, -1.5373831775700935, -0.49861076029300328],
+    [-0.96924363628087983, 1.8759675015077207, 0.041555057407175613],
+    [0.055630079696993609, -0.20397695888897657, 1.0569715142428786],
+  ]
 
   # Helper math functions
   def self.sq(v : Float64) : Float64
@@ -13,6 +25,10 @@ module Colorful
 
   def self.cub(v : Float64) : Float64
     v * v * v
+  end
+
+  def self.clamp01(v : Float64) : Float64
+    v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v)
   end
 
   # Utility used by Hxx color-spaces for interpolating between two angles in [0,360].
@@ -26,6 +42,8 @@ module Colorful
   # Reference white points (D65 and D50)
   private D65 = [0.95047, 1.00000, 1.08883]
   private D50 = [0.96422, 1.00000, 0.82521]
+  # HSLuv uses a rounded version of D65 for internal accuracy
+  private HSLUV_D65 = [0.95045592705167, 1.0, 1.089057750759878]
 
   # Matrix for converting Linear RGB to XYZ (sRGB, D65)
   private LINEAR_RGB_TO_XYZ = [
@@ -49,8 +67,10 @@ module Colorful
   private REF_V = (9.0 * REF_Y) / (REF_X + 15.0 * REF_Y + 3.0 * REF_Z)
 
   # Helper functions for Luv conversions (following Go implementation)
-  private SIX_OVER_TWENTY_NINE      = 6.0 / 29.0
-  private CUBE_SIX_OVER_TWENTY_NINE = SIX_OVER_TWENTY_NINE ** 3
+  private SIX_OVER_TWENTY_NINE        = 6.0 / 29.0
+  private CUBE_SIX_OVER_TWENTY_NINE   = SIX_OVER_TWENTY_NINE ** 3
+  private THREE_OVER_TWENTY_NINE      = 3.0 / 29.0
+  private CUBE_THREE_OVER_TWENTY_NINE = THREE_OVER_TWENTY_NINE ** 3
 
   def self.xyz_to_uv(x : Float64, y : Float64, z : Float64) : Tuple(Float64, Float64)
     denom = x + 15.0 * y + 3.0 * z
@@ -63,7 +83,7 @@ module Colorful
 
   def self.xyz_to_luv_white_ref(x : Float64, y : Float64, z : Float64, wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
     yr = y / wref[1]
-    l = if yr <= CUBE_SIX_OVER_TWENTY_NINE
+    l = if yr <= EPSILON
           yr * KAPPA / 100.0
         else
           1.16 * Math.cbrt(yr) - 0.16
@@ -77,7 +97,7 @@ module Colorful
 
   def self.luv_to_xyz_white_ref(l : Float64, u : Float64, v : Float64, wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
     if l <= 0.08
-      y = wref[1] * l * 100.0 * SIX_OVER_TWENTY_NINE ** 3
+      y = wref[1] * l * 100.0 * CUBE_THREE_OVER_TWENTY_NINE
     else
       y = wref[1] * ((l + 0.16) / 1.16) ** 3
     end
@@ -158,6 +178,21 @@ module Colorful
     {x, y, z}
   end
 
+  # Helper functions for RGB/XYZ conversions
+  def self.xyz_to_linear_rgb(x : Float64, y : Float64, z : Float64) : Tuple(Float64, Float64, Float64)
+    r = XYZ_TO_LINEAR_RGB[0][0]*x + XYZ_TO_LINEAR_RGB[0][1]*y + XYZ_TO_LINEAR_RGB[0][2]*z
+    g = XYZ_TO_LINEAR_RGB[1][0]*x + XYZ_TO_LINEAR_RGB[1][1]*y + XYZ_TO_LINEAR_RGB[1][2]*z
+    b = XYZ_TO_LINEAR_RGB[2][0]*x + XYZ_TO_LINEAR_RGB[2][1]*y + XYZ_TO_LINEAR_RGB[2][2]*z
+    {r, g, b}
+  end
+
+  def self.linear_rgb_to_xyz(r : Float64, g : Float64, b : Float64) : Tuple(Float64, Float64, Float64)
+    x = LINEAR_RGB_TO_XYZ[0][0]*r + LINEAR_RGB_TO_XYZ[0][1]*g + LINEAR_RGB_TO_XYZ[0][2]*b
+    y = LINEAR_RGB_TO_XYZ[1][0]*r + LINEAR_RGB_TO_XYZ[1][1]*g + LINEAR_RGB_TO_XYZ[1][2]*b
+    z = LINEAR_RGB_TO_XYZ[2][0]*r + LINEAR_RGB_TO_XYZ[2][1]*g + LINEAR_RGB_TO_XYZ[2][2]*b
+    {x, y, z}
+  end
+
   # Helper functions for HCL conversions (polar Lab)
   def self.lab_to_hcl(l : Float64, a : Float64, b : Float64) : Tuple(Float64, Float64, Float64)
     h = 0.0
@@ -176,7 +211,314 @@ module Colorful
     {l, a, b}
   end
 
+  # Helper functions for LuvLCh conversions (polar Luv)
+  def self.luv_to_luv_lch(l : Float64, u : Float64, v : Float64) : Tuple(Float64, Float64, Float64)
+    # Oops, floating point workaround necessary if u ~= v and both are very small (i.e. almost zero).
+    h = 0.0
+    if (v - u).abs > 1e-4 && u.abs > 1e-4
+      h = Math.atan2(v, u) * 180.0 / Math::PI
+      h += 360.0 if h < 0.0
+    end
+    c = Math.sqrt(u * u + v * v)
+    {l, c, h}
+  end
+
+  def self.luv_lch_to_luv(l : Float64, c : Float64, h : Float64) : Tuple(Float64, Float64, Float64)
+    h_rad = h * Math::PI / 180.0
+    u = c * Math.cos(h_rad)
+    v = c * Math.sin(h_rad)
+    {l, u, v}
+  end
+
+  # Helper functions for HSLuv/HPLuv conversions
+  def self.luv_lch_to_hsluv(l : Float64, c : Float64, h : Float64) : Tuple(Float64, Float64, Float64)
+    # [-1..1] but the code expects it to be [-100..100]
+    c *= 100.0
+    l *= 100.0
+
+    s = 0.0
+    max = 0.0
+    if l > 99.9999999 || l < 0.00000001
+      s = 0.0
+    else
+      max = max_chroma_for_lh(l, h)
+      s = c / max * 100.0
+    end
+    {h, clamp01(s / 100.0), clamp01(l / 100.0)}
+  end
+
+  def self.hsluv_to_luv_lch(h : Float64, s : Float64, l : Float64) : Tuple(Float64, Float64, Float64)
+    l *= 100.0
+    s *= 100.0
+
+    c = 0.0
+    max = 0.0
+    if l > 99.9999999 || l < 0.00000001
+      c = 0.0
+    else
+      max = max_chroma_for_lh(l, h)
+      c = max / 100.0 * s
+    end
+
+    # c is [-100..100], but for LCh it's supposed to be almost [-1..1]
+    {clamp01(l / 100.0), c / 100.0, h}
+  end
+
+  def self.luv_lch_to_hpluv(l : Float64, c : Float64, h : Float64) : Tuple(Float64, Float64, Float64)
+    # [-1..1] but the code expects it to be [-100..100]
+    c *= 100.0
+    l *= 100.0
+
+    s = 0.0
+    max = 0.0
+    if l > 99.9999999 || l < 0.00000001
+      s = 0.0
+    else
+      max = max_safe_chroma_for_l(l)
+      s = c / max * 100.0
+    end
+    {h, s / 100.0, l / 100.0}
+  end
+
+  def self.hpluv_to_luv_lch(h : Float64, s : Float64, l : Float64) : Tuple(Float64, Float64, Float64)
+    # [-1..1] but the code expects it to be [-100..100]
+    l *= 100.0
+    s *= 100.0
+
+    c = 0.0
+    max = 0.0
+    if l > 99.9999999 || l < 0.00000001
+      c = 0.0
+    else
+      max = max_safe_chroma_for_l(l)
+      c = max / 100.0 * s
+    end
+    {l / 100.0, c / 100.0, h}
+  end
+
+  # Helper functions for OkLab conversions
+  def self.xyz_to_oklab(x : Float64, y : Float64, z : Float64) : Tuple(Float64, Float64, Float64)
+    l_ = Math.cbrt(0.8189330101*x + 0.3618667424*y - 0.1288597137*z)
+    m_ = Math.cbrt(0.0329845436*x + 0.9293118715*y + 0.0361456387*z)
+    s_ = Math.cbrt(0.0482003018*x + 0.2643662691*y + 0.6338517070*z)
+    l = 0.2104542553*l_ + 0.7936177850*m_ - 0.0040720468*s_
+    a = 1.9779984951*l_ - 2.4285922050*m_ + 0.4505937099*s_
+    b = 0.0259040371*l_ + 0.7827717662*m_ - 0.8086757660*s_
+    {l, a, b}
+  end
+
+  def self.oklab_to_xyz(l : Float64, a : Float64, b : Float64) : Tuple(Float64, Float64, Float64)
+    l_ = 0.9999999984505196*l + 0.39633779217376774*a + 0.2158037580607588*b
+    m_ = 1.0000000088817607*l - 0.10556134232365633*a - 0.0638541747717059*b
+    s_ = 1.0000000546724108*l - 0.08948418209496574*a - 1.2914855378640917*b
+
+    ll = l_ ** 3
+    mm = m_ ** 3
+    ss = s_ ** 3
+
+    x = 1.2268798733741557*ll - 0.5578149965554813*mm + 0.28139105017721594*ss
+    y = -0.04057576262431372*ll + 1.1122868293970594*mm - 0.07171106666151696*ss
+    z = -0.07637294974672142*ll - 0.4214933239627916*mm + 1.5869240244272422*ss
+    {x, y, z}
+  end
+
+  def self.oklab_to_oklch(l : Float64, a : Float64, b : Float64) : Tuple(Float64, Float64, Float64)
+    c = Math.sqrt((a * a) + (b * b))
+    h = Math.atan2(b, a)
+    if h < 0
+      h += 2 * Math::PI
+    end
+    {l, c, h * 180 / Math::PI}
+  end
+
+  def self.oklch_to_oklab(l : Float64, c : Float64, h : Float64) : Tuple(Float64, Float64, Float64)
+    h_rad = h * Math::PI / 180
+    a = c * Math.cos(h_rad)
+    b = c * Math.sin(h_rad)
+    {l, a, b}
+  end
+
+  private def self.max_chroma_for_lh(l : Float64, h : Float64) : Float64
+    h_rad = h / 360.0 * Math::PI * 2.0
+    min_length = Float64::MAX
+    get_bounds(l).each do |line|
+      length = length_of_ray_until_intersect(h_rad, line[0], line[1])
+      if length > 0.0 && length < min_length
+        min_length = length
+      end
+    end
+    min_length
+  end
+
+  private def self.get_bounds(l : Float64) : Array(Array(Float64))
+    sub2 = 0.0
+    ret = Array.new(6) { [0.0, 0.0] }
+    sub1 = ((l + 16.0) ** 3) / 1560896.0
+    if sub1 > HSLUV_EPSILON
+      sub2 = sub1
+    else
+      sub2 = l / HSLUV_KAPPA
+    end
+    (0...3).each do |i|
+      (0...2).each do |k|
+        top1 = (284517.0 * HSLUV_M[i][0] - 94839.0 * HSLUV_M[i][2]) * sub2
+        top2 = (838422.0 * HSLUV_M[i][2] + 769860.0 * HSLUV_M[i][1] + 731718.0 * HSLUV_M[i][0]) * l * sub2 - 769860.0 * k.to_f * l
+        bottom = (632260.0 * HSLUV_M[i][2] - 126452.0 * HSLUV_M[i][1]) * sub2 + 126452.0 * k.to_f
+        ret[i * 2 + k][0] = top1 / bottom
+        ret[i * 2 + k][1] = top2 / bottom
+      end
+    end
+    ret
+  end
+
+  private def self.length_of_ray_until_intersect(theta : Float64, x : Float64, y : Float64) : Float64
+    y / (Math.sin(theta) - x * Math.cos(theta))
+  end
+
+  private def self.max_safe_chroma_for_l(l : Float64) : Float64
+    min_length = Float64::MAX
+    get_bounds(l).each do |line|
+      m1 = line[0]
+      b1 = line[1]
+      x = intersect_line_line(m1, b1, -1.0 / m1, 0.0)
+      dist = distance_from_pole(x, b1 + x * m1)
+      if dist < min_length
+        min_length = dist
+      end
+    end
+    min_length
+  end
+
+  private def self.intersect_line_line(x1 : Float64, y1 : Float64, x2 : Float64, y2 : Float64) : Float64
+    (y1 - y2) / (x2 - x1)
+  end
+
+  private def self.distance_from_pole(x : Float64, y : Float64) : Float64
+    Math.sqrt(x * x + y * y)
+  end
+
+  # ColorConvertible interface for types that can be converted to Color
+  module ColorConvertible
+    abstract def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+  end
+
+  # Simple color types matching Go's standard library color types
+  struct RGBA
+    include ColorConvertible
+    property r, g, b, a : UInt8
+
+    def initialize(@r : UInt8, @g : UInt8, @b : UInt8, @a : UInt8)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # RGBA stores non-alpha-premultiplied values, color.Color.RGBA() returns premultiplied
+      if a == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      r32 = (r.to_u32 * 0xFFFF) // 0xFF
+      g32 = (g.to_u32 * 0xFFFF) // 0xFF
+      b32 = (b.to_u32 * 0xFFFF) // 0xFF
+      a32 = (a.to_u32 * 0xFFFF) // 0xFF
+      {r32 * a32 // 0xFFFF, g32 * a32 // 0xFFFF, b32 * a32 // 0xFFFF, a32}
+    end
+  end
+
+  struct NRGBA
+    include ColorConvertible
+    property r, g, b, a : UInt8
+
+    def initialize(@r : UInt8, @g : UInt8, @b : UInt8, @a : UInt8)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # NRGBA stores non-alpha-premultiplied values, color.Color.RGBA() returns premultiplied
+      if a == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      r32 = (r.to_u32 * 0xFFFF) // 0xFF
+      g32 = (g.to_u32 * 0xFFFF) // 0xFF
+      b32 = (b.to_u32 * 0xFFFF) // 0xFF
+      a32 = (a.to_u32 * 0xFFFF) // 0xFF
+      {r32 * a32 // 0xFFFF, g32 * a32 // 0xFFFF, b32 * a32 // 0xFFFF, a32}
+    end
+  end
+
+  struct RGBA64
+    include ColorConvertible
+    property r, g, b, a : UInt16
+
+    def initialize(@r : UInt16, @g : UInt16, @b : UInt16, @a : UInt16)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # RGBA64 stores non-alpha-premultiplied 16-bit values
+      if a == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      r32 = (r.to_u32 * 0xFFFF) // 0xFFFF
+      g32 = (g.to_u32 * 0xFFFF) // 0xFFFF
+      b32 = (b.to_u32 * 0xFFFF) // 0xFFFF
+      a32 = (a.to_u32 * 0xFFFF) // 0xFFFF
+      {r32 * a32 // 0xFFFF, g32 * a32 // 0xFFFF, b32 * a32 // 0xFFFF, a32}
+    end
+  end
+
+  struct NRGBA64
+    include ColorConvertible
+    property r, g, b, a : UInt16
+
+    def initialize(@r : UInt16, @g : UInt16, @b : UInt16, @a : UInt16)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # NRGBA64 stores non-alpha-premultiplied 16-bit values
+      if a == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      r32 = (r.to_u32 * 0xFFFF) // 0xFFFF
+      g32 = (g.to_u32 * 0xFFFF) // 0xFFFF
+      b32 = (b.to_u32 * 0xFFFF) // 0xFFFF
+      a32 = (a.to_u32 * 0xFFFF) // 0xFFFF
+      {r32 * a32 // 0xFFFF, g32 * a32 // 0xFFFF, b32 * a32 // 0xFFFF, a32}
+    end
+  end
+
+  struct Gray
+    include ColorConvertible
+    property y : UInt8
+
+    def initialize(@y : UInt8)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # Gray stores luminance, color.Color.RGBA() returns premultiplied gray
+      if y == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      y32 = (y.to_u32 * 0xFFFF) // 0xFF
+      {y32, y32, y32, 0xFFFF_u32}
+    end
+  end
+
+  struct Gray16
+    include ColorConvertible
+    property y : UInt16
+
+    def initialize(@y : UInt16)
+    end
+
+    def rgba : Tuple(UInt32, UInt32, UInt32, UInt32)
+      # Gray16 stores 16-bit luminance
+      if y == 0
+        return {0_u32, 0_u32, 0_u32, 0_u32}
+      end
+      y32 = (y.to_u32 * 0xFFFF) // 0xFFFF
+      {y32, y32, y32, 0xFFFF_u32}
+    end
+  end
+
   struct Color
+    include ColorConvertible
     getter r : Float64
     getter g : Float64
     getter b : Float64
@@ -394,6 +736,169 @@ module Colorful
     def self.hcl_white_ref(h : Float64, c : Float64, l : Float64, wref : Array(Float64)) : Color
       l, a, b = Colorful.hcl_to_lab(h, c, l)
       lab_white_ref(l, a, b, wref)
+    end
+
+    # Returns the color in LuvLCh space (polar Luv) using D65 as reference white.
+    # H in [0..360], C in [0..1], L in [0..1]
+    def luv_lch : Tuple(Float64, Float64, Float64)
+      l, u, v = luv
+      Colorful.luv_to_luv_lch(l, u, v)
+    end
+
+    # Generates a color by using data given in LuvLCh space using D65 as reference white.
+    # H in [0..360], C in [0..1], L in [0..1]
+    def self.luv_lch(l : Float64, c : Float64, h : Float64) : Color
+      l, u, v = Colorful.luv_lch_to_luv(l, c, h)
+      luv(l, u, v)
+    end
+
+    # Returns the color in LuvLCh space, taking into account a given reference white.
+    def luv_lch_white_ref(wref : Array(Float64)) : Tuple(Float64, Float64, Float64)
+      l, u, v = luv_white_ref(wref)
+      Colorful.luv_to_luv_lch(l, u, v)
+    end
+
+    # Generates a color by using data given in LuvLCh space, taking into account a given reference white.
+    def self.luv_lch_white_ref(l : Float64, c : Float64, h : Float64, wref : Array(Float64)) : Color
+      l, u, v = Colorful.luv_lch_to_luv(l, c, h)
+      luv_white_ref(l, u, v, wref)
+    end
+
+    # BlendLuvLCh blends two colors in the cylindrical CIELUV color space.
+    # t == 0 results in c1, t == 1 results in c2
+    def blend_luv_lch(other : Color, t : Float64) : Color
+      t_clamped = t.clamp(0.0, 1.0)
+      l1, c1, h1 = luv_lch
+      l2, c2, h2 = other.luv_lch
+      Color.luv_lch(
+        l1 + t_clamped * (l2 - l1),
+        c1 + t_clamped * (c2 - c1),
+        Colorful.interp_angle(h1, h2, t_clamped)
+      ).clamped
+    end
+
+    # Returns the color in OkLab color space.
+    # L is in [0..1], a and b are in about [-0.5..0.5]
+    def oklab : Tuple(Float64, Float64, Float64)
+      x, y, z = to_xyz
+      Colorful.xyz_to_oklab(x, y, z)
+    end
+
+    # Generates a color by using data given in OkLab space.
+    def self.oklab(l : Float64, a : Float64, b : Float64) : Color
+      x, y, z = Colorful.oklab_to_xyz(l, a, b)
+      from_xyz(x, y, z)
+    end
+
+    # Returns the color in OkLch color space (polar OkLab).
+    # H in [0..360], C in [0..1], L in [0..1]
+    def oklch : Tuple(Float64, Float64, Float64)
+      l, a, b = oklab
+      Colorful.oklab_to_oklch(l, a, b)
+    end
+
+    # Generates a color by using data given in OkLch space.
+    def self.oklch(l : Float64, c : Float64, h : Float64) : Color
+      l, a, b = Colorful.oklch_to_oklab(l, c, h)
+      oklab(l, a, b)
+    end
+
+    # BlendOkLab blends two colors in the OkLab color-space.
+    # t == 0 results in c1, t == 1 results in c2
+    def blend_oklab(other : Color, t : Float64) : Color
+      t_clamped = t.clamp(0.0, 1.0)
+      l1, a1, b1 = oklab
+      l2, a2, b2 = other.oklab
+      Color.oklab(
+        l1 + t_clamped * (l2 - l1),
+        a1 + t_clamped * (a2 - a1),
+        b1 + t_clamped * (b2 - b1)
+      ).clamped
+    end
+
+    # BlendOkLch blends two colors in the OkLch color-space.
+    # t == 0 results in c1, t == 1 results in c2
+    def blend_oklch(other : Color, t : Float64) : Color
+      t_clamped = t.clamp(0.0, 1.0)
+      l1, c1, h1 = oklch
+      l2, c2, h2 = other.oklch
+
+      # Handle low chroma cases (from go-colorful PR #60)
+      if c1 <= 0.00015 && c2 >= 0.00015
+        h1 = h2
+      elsif c2 <= 0.00015 && c1 >= 0.00015
+        h2 = h1
+      end
+
+      Color.oklch(
+        l1 + t_clamped * (l2 - l1),
+        c1 + t_clamped * (c2 - c1),
+        Colorful.interp_angle(h1, h2, t_clamped)
+      ).clamped
+    end
+
+    # Returns the color in HSLuv color space.
+    # Hue in [0..360], Saturation and Luminance in [0..1]
+    def hsluv : Tuple(Float64, Float64, Float64)
+      l, c, h = luv_lch_white_ref(HSLUV_D65)
+      Colorful.luv_lch_to_hsluv(l, c, h)
+    end
+
+    # Returns the color in HPLuv color space.
+    # Hue in [0..360], Saturation and Luminance in [0..1]
+    # Note that HPLuv can only represent pastel colors, and so the Saturation
+    # value could be much larger than 1 for colors it can't represent.
+    def hpluv : Tuple(Float64, Float64, Float64)
+      l, c, h = luv_lch_white_ref(HSLUV_D65)
+      Colorful.luv_lch_to_hpluv(l, c, h)
+    end
+
+    # Creates a new Color from values in the HSLuv color space.
+    # Hue in [0..360], Saturation [0..1], Luminance (lightness) in [0..1].
+    # The returned color values are clamped (using .clamped), so this will never output
+    # an invalid color.
+    def self.hsluv(h : Float64, s : Float64, l : Float64) : Color
+      # HSLuv -> LuvLCh -> CIELUV -> CIEXYZ -> Linear RGB -> sRGB
+      l_lch, c, h_lch = Colorful.hsluv_to_luv_lch(h, s, l)
+      l_luv, u, v = Colorful.luv_lch_to_luv(l_lch, c, h_lch)
+      x, y, z = Colorful.luv_to_xyz_white_ref(l_luv, u, v, HSLUV_D65)
+      r, g, b = Colorful.xyz_to_linear_rgb(x, y, z)
+      Color.linear_rgb(r, g, b).clamped
+    end
+
+    # Creates a new Color from values in the HPLuv color space.
+    # Hue in [0..360], Saturation [0..1], Luminance (lightness) in [0..1].
+    # The returned color values are clamped (using .clamped), so this will never output
+    # an invalid color.
+    def self.hpluv(h : Float64, s : Float64, l : Float64) : Color
+      # HPLuv -> LuvLCh -> CIELUV -> CIEXYZ -> Linear RGB -> sRGB
+      l_lch, c, h_lch = Colorful.hpluv_to_luv_lch(h, s, l)
+      l_luv, u, v = Colorful.luv_lch_to_luv(l_lch, c, h_lch)
+      x, y, z = Colorful.luv_to_xyz_white_ref(l_luv, u, v, HSLUV_D65)
+      r, g, b = Colorful.xyz_to_linear_rgb(x, y, z)
+      Color.linear_rgb(r, g, b).clamped
+    end
+
+    # DistanceHSLuv calculates Euclidean distance in the HSLuv colorspace. No idea
+    # how useful this is.
+    #
+    # The Hue value is divided by 100 before the calculation, so that H, S, and L
+    # have the same relative ranges.
+    def distance_hsluv(other : Color) : Float64
+      h1, s1, l1 = hsluv
+      h2, s2, l2 = other.hsluv
+      Math.sqrt(Colorful.sq((h1 - h2) / 100.0) + Colorful.sq(s1 - s2) + Colorful.sq(l1 - l2))
+    end
+
+    # DistanceHPLuv calculates Euclidean distance in the HPLuv colorspace. No idea
+    # how useful this is.
+    #
+    # The Hue value is divided by 100 before the calculation, so that H, S, and L
+    # have the same relative ranges.
+    def distance_hpluv(other : Color) : Float64
+      h1, s1, l1 = hpluv
+      h2, s2, l2 = other.hpluv
+      Math.sqrt(Colorful.sq((h1 - h2) / 100.0) + Colorful.sq(s1 - s2) + Colorful.sq(l1 - l2))
     end
 
     # Returns the color in HSV space.
@@ -794,7 +1299,113 @@ module Colorful
     Color.hex(input)
   end
 
+  # Constructs a Color from something implementing ColorConvertible (similar to Go's color.Color).
+  # Returns a tuple of {Color, Bool} where the bool indicates success (alpha > 0).
+  def self.make_color(col : ColorConvertible) : {Color, Bool}
+    r, g, b, a = col.rgba
+    if a == 0
+      return {Color.new(0.0, 0.0, 0.0), false}
+    end
+
+    # Since color.Color is alpha pre-multiplied, we need to divide the
+    # RGB values by alpha again in order to get back the original RGB.
+    r64 = r.to_u64 * 0xFFFF_u64
+    g64 = g.to_u64 * 0xFFFF_u64
+    b64 = b.to_u64 * 0xFFFF_u64
+    a64 = a.to_u64
+
+    r_unpremultiplied = (r64 // a64).to_u32
+    g_unpremultiplied = (g64 // a64).to_u32
+    b_unpremultiplied = (b64 // a64).to_u32
+
+    {Color.new(r_unpremultiplied.to_f / 65535.0, g_unpremultiplied.to_f / 65535.0, b_unpremultiplied.to_f / 65535.0), true}
+  end
+
   def self.make_color(input : Color) : Color
     input
+  end
+
+  # A HexColor is a Color stored as a hex string "#rrggbb". It implements
+  # JSON and YAML serialization interfaces.
+  struct HexColor
+    property color : Color
+
+    def initialize(@color : Color)
+    end
+
+    def initialize(hex : String)
+      @color = Color.hex(hex)
+    end
+
+    def initialize(r : Float64, g : Float64, b : Float64)
+      @color = Color.new(r, g, b)
+    end
+
+    # Parse a hex string into a HexColor
+    def self.parse(hex : String) : HexColor
+      new(hex)
+    end
+
+    # Convert to hex string
+    def to_s : String
+      @color.hex
+    end
+
+    # Convert to Color
+    def to_color : Color
+      @color
+    end
+
+    # For compatibility with Go's HexColor type which has R, G, B fields
+    def r : Float64
+      @color.r
+    end
+
+    def g : Float64
+      @color.g
+    end
+
+    def b : Float64
+      @color.b
+    end
+
+    # JSON deserialization constructor for JSON::Serializable
+    def self.new(pull : JSON::PullParser)
+      from_json(pull)
+    end
+
+    # JSON serialization
+    def to_json : String
+      JSON.build do |json|
+        to_json(json)
+      end
+    end
+
+    def to_json(json : JSON::Builder) : Nil
+      json.string(to_s)
+    end
+
+    def self.from_json(string : String) : HexColor
+      pull = JSON::PullParser.new(string)
+      from_json(pull)
+    end
+
+    def self.from_json(pull : JSON::PullParser) : HexColor
+      hex = pull.read_string
+      new(hex)
+    end
+
+    # YAML serialization
+    def to_yaml(yaml : YAML::Nodes::Builder) : Nil
+      yaml.scalar(to_s)
+    end
+
+    def self.from_yaml(ctx : YAML::ParseContext, node : YAML::Nodes::Node) : HexColor
+      unless node.is_a?(YAML::Nodes::Scalar)
+        node.raise "Expected scalar for hex color"
+      end
+      hex = node.value
+      new(hex)
+    end
   end
 end
